@@ -24,8 +24,9 @@ import signal
 import threading
 import paho.mqtt.client as mqtt
 from threading import Timer
-from time import time
+from datetime import datetime
 from timeit import default_timer as timer
+
 
 stayingAlive=True
 
@@ -55,8 +56,9 @@ class Publisher (threading.Thread):
         self.sendTimer.start()
         t= timer()
         t=t*1000000
+        self.cb.putQ('p,'+str(int(t)))
         self.client.publish(self.cfg.topic, int(t), self.cfg.qos)
-        self.cb.putQ('sent: '+str(t))
+      
         
     def run(self):
         self.client.connect(self.cfg.host)
@@ -84,8 +86,8 @@ class Subscriber (threading.Thread):
         
     def on_message(self,client, userdata, msg):
         t = timer()*1000000
-        s = t-int(msg.payload)
-        m =  str(self.myId) +" Sent: "+str(msg.payload)+ " Recv: "+str(t)+ " Delta: "+str(int(s))
+        delta = t-int(msg.payload)
+        m =  's,'+str(msg.payload)+ ','+str(self.myId) +','+str(int(delta))
         self.cb.putQ(m)
         
     def on_connect(self,client, userdata, flags, rc):
@@ -107,6 +109,7 @@ class Tester():
     def __init__(self,args):
         self.queue      = Queue.Queue( maxsize=20 )# Just prevent's increase infinity... 
         self.threads=[]
+        self.cfg=args
         for num in range(0,args.subs,1):
             s = Subscriber(args,self,str(num))
             self.threads.append(s)
@@ -120,30 +123,59 @@ class Tester():
             self.queue.put(msg,False)
         except Queue.Full,e:
             global stayingAlive
-            print 'Queue overflow: '+ str(e)
+            print( 'Queue overflow: '+ str(e))
             stayingAlive = False #No reason to continue 
             
     def runMe(self):
         global stayingAlive
+        results={}
         
         for t in self.threads:
             t.start() 
         
+        s='time;'
+        for num in range(0,self.cfg.subs,1):
+            s+='Subs'+ str(num)+';'
+        outFile = open(self.cfg.file,'w')
+        outFile.write(s+'\n')      
+      
+        
         while(stayingAlive):
             try:
                 msg = self.queue.get(block=True,timeout=1.0)
-                print msg
+                l=msg.split(',')
+                mType = l[0]
+                timeStamp = l[1]
+                if mType =='p':
+                    date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    results[timeStamp]=[date,{}]
+                    #print results
+                elif mType == 's':
+                    myId   = l[2]
+                    delta  = l[3]
+                    row    = results[timeStamp]
+                    values = row[1]
+                    values[myId]= delta
+                    if len(values) == self.cfg.subs:
+                        s=str(row[0])+';'
+                        for num in range(0,self.cfg.subs,1):
+                            s+=values[str(num)] + ';'
+                        print( s)
+                        outFile.write(s+'\n')
+                        del   results[timeStamp]
+                #print msg
             except Queue.Empty:
                 pass
         
+        outFile.close()
         for t in self.threads:
             t.alive=False
             
-        print "Alive is False"  
+        print( "Alive is False")  
                       
         for t in self.threads:
             t.join()
-        print "All threas joined"    
+        print ("All threas joined")    
 ############################################################################################
 def handleCmdLineArgs():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
