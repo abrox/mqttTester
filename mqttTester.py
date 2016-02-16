@@ -26,7 +26,7 @@ import paho.mqtt.client as mqtt
 from threading import Timer
 from datetime import datetime
 from timeit import default_timer as timer
-
+from random import uniform
 
 stayingAlive=True
 
@@ -34,7 +34,65 @@ def signal_handler(signal, frame):
         global stayingAlive
         stayingAlive = False
         print('You pressed Ctrl+C!')
+        
+class Connector (threading.Thread):
+    ''' '''
+    def __init__(self, cfg, callBackIf,myId):
+        threading.Thread.__init__(self)
+        self.cb        = callBackIf
+        self.alive     = True
+        self.myId      = myId
+        self.cfg       = cfg
+        self.startTime = 0
+        self.date = None
+        
+        self.state  = 'disconnected'
+        self.client = mqtt.Client()
+        self.client.on_connect = self.on_connect
+        self.client.on_disconnect = self.on_disconnect
+        
+    def on_connect(self,client, userdata, flags, rc):
+        #print("Connector... Connected with result code "+str(rc))
+        self.state  = 'connected'
+        t = timer()*1000000
+        delta = t-int(self.startTime)
+        m =  'c,'+str(self.date)+ ','+str(self.myId) +','+str(int(delta))
+        self.cb.putQ(m)
+        
+        self.startTimer()
     
+
+    def startTimer(self):
+        t = uniform(1.0, 6.0)
+        self.sendTimer = Timer(t, self.on_timer)
+        self.sendTimer.start()
+
+    def on_disconnect(self,client, userdata, rc):
+        #print("Connector...Disconnected with result code "+str(rc)) 
+        self.state  = 'disconnected'
+        self.startTimer()
+        
+    def on_timer(self):
+        if self.state  == 'disconnected':
+            self.client.connect(self.cfg.host)
+            self.date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.startTime = timer()*1000000
+        elif self.state  == 'connected':
+            self.client.disconnect()
+         
+    def run(self):
+        
+        self.startTimer()
+        
+        while self.alive:
+            self.client.loop()
+        self.sendTimer.cancel()
+        self.client.disconnect()
+           
+    def __del__(self):
+        self.alive = False
+        
+############################################################    
 class Publisher (threading.Thread):
     ''' '''
     def __init__(self, cfg, callBackIf):
@@ -110,13 +168,18 @@ class Tester():
         self.queue      = Queue.Queue( maxsize=20 )# Just prevent's increase infinity... 
         self.threads=[]
         self.cfg=args
+        #Create subscriper threads
         for num in range(0,args.subs,1):
             s = Subscriber(args,self,str(num))
             self.threads.append(s)
-            
+        #create publisher    
         p = Publisher(args,self) 
         self.threads.append(p)
-        
+        #Create connectors if any
+        for num in range(0,args.conn,1):
+            c = Connector(args,self,str(num))
+            self.threads.append(c)
+            
     def putQ(self, msg):
         '''Callback function handling incoming messages'''
         try:
@@ -160,10 +223,11 @@ class Tester():
                         s=str(row[0])+';'
                         for num in range(0,self.cfg.subs,1):
                             s+=values[str(num)] + ';'
-                        print( s)
+                        #print( s)
                         outFile.write(s+'\n')
                         del   results[timeStamp]
-                #print msg
+                elif mType == 'c':
+                    print msg
             except Queue.Empty:
                 pass
         
@@ -185,6 +249,7 @@ def handleCmdLineArgs():
     parser.add_argument('--subs', '-s',help='Number of subscribers',default=1 ,type=int)
     parser.add_argument('--topic','-t',help='topic used',default='myTest')
     parser.add_argument('--pubt', '-p',help='timeout for publishing s',default=3 ,type=int)
+    parser.add_argument('--conn', '-c',help='connectors',default=0 ,type=int)
     return parser.parse_args()
 
 def main( args ):
