@@ -27,7 +27,7 @@ else:
     import queue as queue
 import signal
 import threading
-import paho.mqtt.client as mqtt
+import paho.mqtt.client as client
 import ssl
 from functools import wraps
 
@@ -43,6 +43,16 @@ def signal_handler(signal, frame):
         stayingAlive = False
         print('You pressed Ctrl+C!')
         
+class TestClient(client.Client):
+    ''' Collect mqtt client initilizing to one place'''
+    def __init__(self, cfg):
+        client.Client.__init__(self)
+        self.cfg = cfg
+        if self.cfg.ca_certs is not None:
+            self.tls_insecure_set(True)
+            #self.client.tls_set(self.cfg.ca_certs)
+            self.tls_set(self.cfg.ca_certs, certfile=self.cfg.certfile, tls_version=ssl.PROTOCOL_TLSv1)
+    
 class Connector (threading.Thread):
     ''' '''
     def __init__(self, cfg, callBackIf,myId):
@@ -56,14 +66,10 @@ class Connector (threading.Thread):
         self.state  = 'disconnected'
         self.sendTimer = None
         
-        self.client = mqtt.Client()
+        self.client = TestClient(cfg)
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
         
-        if self.cfg.ca_certs is not None:
-                self.client.tls_insecure_set(True)
-                #self.client.tls_set(self.cfg.ca_certs)
-                self.client.tls_set(self.cfg.ca_certs, certfile=self.cfg.certfile, tls_version=ssl.PROTOCOL_TLSv1)
             
     def on_connect(self,client, userdata, flags, rc):
         if self.state == 'disconnected':
@@ -124,14 +130,10 @@ class Publisher (threading.Thread):
         self.alive     = True
         self.cfg       = cfg
         
-        self.client = mqtt.Client()
+        self.client = TestClient(cfg)
         self.client.on_connect = self.on_connect
         self.sendTimer=Timer(self.cfg.pubt,self.on_timer)
-        
-        self.client.tls_insecure_set(True)
-        if self.cfg.ca_certs is not None:
-            #self.client.tls_set(self.cfg.ca_certs)
-            self.client.tls_set(self.cfg.ca_certs, certfile=self.cfg.certfile)
+       
     def on_connect(self,client, userdata, flags, rc):
         print("Connected with result code "+str(rc))
         self.sendTimer.start()
@@ -167,14 +169,11 @@ class Subscriber (threading.Thread):
         self.myId      = myId
         self.cfg       = cfg
          
-        self.client = mqtt.Client()
+        self.client = TestClient(cfg)
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
         
-        self.client.tls_insecure_set(True)
-        if self.cfg.ca_certs is not None:
-            self.client.tls_set(self.cfg.ca_certs, certfile=self.cfg.certfile)
-            
+
     def on_message(self,client, userdata, msg):
         t = timer()*1000000
         delta = t-int(msg.payload)
