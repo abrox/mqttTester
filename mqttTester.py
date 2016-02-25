@@ -35,6 +35,7 @@ from threading import Timer
 from datetime import datetime
 from timeit import default_timer as timer
 from random import uniform
+from time import sleep
 
 stayingAlive=True
 
@@ -184,8 +185,9 @@ class Subscriber (threading.Thread):
         self.alive = False
 
 ###################################################################################
-class Tester():
+class Tester(threading.Thread):
     def __init__(self,args):
+        threading.Thread.__init__(self)
         self.queue      = queue.Queue( maxsize=20 )# Just prevent's increase infinity... 
         self.threads=[]
         self.cfg=args
@@ -217,7 +219,7 @@ class Tester():
             return False 
         return True
 
-    def runMe(self):
+    def run(self):
         global stayingAlive
         results={}
 
@@ -298,9 +300,13 @@ def sslwrap(func):
     return bar
 
 def main( args ):
+    global stayingAlive
     ssl.wrap_socket = sslwrap(ssl.wrap_socket)
     t=Tester( args )
-    t.runMe()
+    t.start()
+
+    while (stayingAlive):
+        sleep(1)
 
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)
