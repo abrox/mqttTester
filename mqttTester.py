@@ -19,10 +19,18 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 '''
 import argparse
-import Queue
+import sys
+is_py2 = sys.version[0] == '2'
+if is_py2:
+    import Queue as queue
+else:
+    import queue as queue
 import signal
 import threading
 import paho.mqtt.client as mqtt
+import ssl
+from functools import wraps
+
 from threading import Timer
 from datetime import datetime
 from timeit import default_timer as timer
@@ -45,37 +53,51 @@ class Connector (threading.Thread):
         self.cfg       = cfg
         self.startTime = 0
         self.date = None
-        
         self.state  = 'disconnected'
+        self.sendTimer = None
+        
         self.client = mqtt.Client()
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
         
+        if self.cfg.ca_certs is not None:
+                self.client.tls_insecure_set(True)
+                #self.client.tls_set(self.cfg.ca_certs)
+                self.client.tls_set(self.cfg.ca_certs, certfile=self.cfg.certfile, tls_version=ssl.PROTOCOL_TLSv1)
+            
     def on_connect(self,client, userdata, flags, rc):
-        #print("Connector... Connected with result code "+str(rc))
-        self.state  = 'connected'
-        t = timer()*1000000
-        delta = t-int(self.startTime)
-        m =  'c,'+str(self.date)+ ','+str(self.myId) +','+str(int(delta))
-        self.cb.putQ(m)
+        if self.state == 'disconnected':
+            print("Connector" +str(self.myId) +"... Connected with result code "+str(rc))
+            self.state  = 'connected'
+            t = timer()*1000000
+            delta = t-int(self.startTime)
+            m =  'c,'+str(self.date)+ ','+str(self.myId) +','+str(int(delta))
+            self.cb.putQ(m)
+            self.startTimer()
+        else:
+            print("Connector" +str(self.myId) +"Duplicate Connected with result code "+str(rc))
         
-        self.startTimer()
-    
-
+    def on_disconnect(self,client, userdata, rc):
+        if self.state == 'connected':
+            print("Connector" +str(self.myId)+".Disconnected with result code "+str(rc)) 
+            self.state  = 'disconnected'
+            self.startTimer()
+        else:
+            print("Connector" +str(self.myId)+".Duplicate Disconnected with result code "+str(rc)) 
+        
     def startTimer(self):
         t = uniform(1.0, 6.0)
+        if self.sendTimer is not None:
+            self.sendTimer.cancel()
+            
         self.sendTimer = Timer(t, self.on_timer)
         self.sendTimer.start()
-
-    def on_disconnect(self,client, userdata, rc):
-        #print("Connector...Disconnected with result code "+str(rc)) 
-        self.state  = 'disconnected'
-        self.startTimer()
-        
+   
     def on_timer(self):
         if self.state  == 'disconnected':
-            self.client.connect(self.cfg.host)
+            self.client.connect(self.cfg.host, port=self.cfg.port)
             self.date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
             self.startTime = timer()*1000000
         elif self.state  == 'connected':
             self.client.disconnect()
@@ -86,6 +108,7 @@ class Connector (threading.Thread):
         
         while self.alive:
             self.client.loop()
+            
         self.sendTimer.cancel()
         self.client.disconnect()
            
@@ -105,6 +128,10 @@ class Publisher (threading.Thread):
         self.client.on_connect = self.on_connect
         self.sendTimer=Timer(self.cfg.pubt,self.on_timer)
         
+        self.client.tls_insecure_set(True)
+        if self.cfg.ca_certs is not None:
+            #self.client.tls_set(self.cfg.ca_certs)
+            self.client.tls_set(self.cfg.ca_certs, certfile=self.cfg.certfile)
     def on_connect(self,client, userdata, flags, rc):
         print("Connected with result code "+str(rc))
         self.sendTimer.start()
@@ -114,12 +141,14 @@ class Publisher (threading.Thread):
         self.sendTimer.start()
         t= timer()
         t=t*1000000
-        self.cb.putQ('p,'+str(int(t)))
-        self.client.publish(self.cfg.topic, int(t), self.cfg.qos)
-      
+        rc = self.cb.putQ('p,'+str(int(t)))
+        self.client.publish(self.cfg.topic, str(int(t)), self.cfg.qos)
+        
+        if rc == False:
+            self.alive = False    
         
     def run(self):
-        self.client.connect(self.cfg.host)
+        self.client.connect(self.cfg.host, port=self.cfg.port )
         while self.alive:
             self.client.loop()
         self.sendTimer.cancel()
@@ -142,18 +171,25 @@ class Subscriber (threading.Thread):
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
         
+        self.client.tls_insecure_set(True)
+        if self.cfg.ca_certs is not None:
+            self.client.tls_set(self.cfg.ca_certs, certfile=self.cfg.certfile)
+            
     def on_message(self,client, userdata, msg):
         t = timer()*1000000
         delta = t-int(msg.payload)
-        m =  's,'+str(msg.payload)+ ','+str(self.myId) +','+str(int(delta))
-        self.cb.putQ(m)
-        
+        p = msg.payload.decode("utf-8")
+        m =  's,'+ p + ','+str(self.myId) +','+str(int(delta))
+        rc = self.cb.putQ(m)
+        if rc == False:
+            self.alive = False
+                    
     def on_connect(self,client, userdata, flags, rc):
         print("Connected with result code "+str(rc))
         self.client.subscribe(self.cfg.topic,qos=self.cfg.qos)   
         
     def run(self):
-        self.client.connect(self.cfg.host)
+        self.client.connect(self.cfg.host, port=self.cfg.port )
         
         while self.alive:
             self.client.loop()    
@@ -165,7 +201,7 @@ class Subscriber (threading.Thread):
 ###################################################################################
 class Tester():
     def __init__(self,args):
-        self.queue      = Queue.Queue( maxsize=20 )# Just prevent's increase infinity... 
+        self.queue      = queue.Queue( maxsize=20 )# Just prevent's increase infinity... 
         self.threads=[]
         self.cfg=args
         #Create subscriper threads
@@ -184,11 +220,13 @@ class Tester():
         '''Callback function handling incoming messages'''
         try:
             self.queue.put(msg,False)
-        except Queue.Full,e:
+        except queue.Full as e:
             global stayingAlive
             print( 'Queue overflow: '+ str(e))
-            stayingAlive = False #No reason to continue 
-            
+            stayingAlive = False #No reason to continue
+            return False 
+        return True
+        
     def runMe(self):
         global stayingAlive
         results={}
@@ -199,6 +237,7 @@ class Tester():
         s='time;'
         for num in range(0,self.cfg.subs,1):
             s+='Subs'+ str(num)+';'
+            
         outFile = open(self.cfg.file,'w')
         outFile.write(s+'\n')      
       
@@ -212,7 +251,6 @@ class Tester():
                 if mType =='p':
                     date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     results[timeStamp]=[date,{}]
-                    #print results
                 elif mType == 's':
                     myId   = l[2]
                     delta  = l[3]
@@ -223,12 +261,12 @@ class Tester():
                         s=str(row[0])+';'
                         for num in range(0,self.cfg.subs,1):
                             s+=values[str(num)] + ';'
-                        #print( s)
+                        print(s)
                         outFile.write(s+'\n')
                         del   results[timeStamp]
                 elif mType == 'c':
-                    print msg
-            except Queue.Empty:
+                    print (msg)
+            except queue.Empty:
                 pass
         
         outFile.close()
@@ -250,9 +288,20 @@ def handleCmdLineArgs():
     parser.add_argument('--topic','-t',help='topic used',default='myTest')
     parser.add_argument('--pubt', '-p',help='timeout for publishing s',default=3 ,type=int)
     parser.add_argument('--conn', '-c',help='connectors',default=0 ,type=int)
+    parser.add_argument('--port', '-P',help='mqtt port',default=1883 ,type=int)
+    parser.add_argument('--ca_certs'  ,help='a string path to the Certificate Authority certificate file')
+    parser.add_argument('--certfile'  ,help='strings pointing to the PEM encoded client certificate and private keys respectivel')
     return parser.parse_args()
 
+def sslwrap(func):
+    @wraps(func)
+    def bar(*args, **kw):
+        kw['ssl_version'] = ssl.PROTOCOL_TLSv1
+        return func(*args, **kw)
+    return bar
+
 def main( args ):
+    ssl.wrap_socket = sslwrap(ssl.wrap_socket)
     t=Tester( args )
     t.runMe()
     
