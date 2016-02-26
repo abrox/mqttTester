@@ -36,6 +36,7 @@ from datetime import datetime
 from timeit import default_timer as timer
 from random import uniform
 from time import sleep
+from plot import Plotter
 
 stayingAlive=True
 
@@ -186,12 +187,13 @@ class Subscriber (threading.Thread):
 
 ###################################################################################
 class Tester(threading.Thread):
-    def __init__(self,args):
+    def __init__(self,args,plotter):
         threading.Thread.__init__(self)
         self.queue      = queue.Queue( maxsize=20 )# Just prevent's increase infinity... 
         self.threads=[]
         self.cfg=args
         self.connectorCount=0;
+        self.plotter = plotter
 
         #Create subscriper threads
         for num in range(0,args.subs,1):
@@ -256,7 +258,10 @@ class Tester(threading.Thread):
                         print(s)
                         outFile.write(s+'\n')
                         del   results[timeStamp]
+                    self.plotter.setValue(2,delta)
                 elif mType == 'c':
+                    delta  = l[3]
+                    self.plotter.setValue(1,delta)
                     print (msg)
                     self.threads[:] = [t for t in  self.threads if t.alive ]
 
@@ -302,12 +307,13 @@ def sslwrap(func):
 def main( args ):
     global stayingAlive
     ssl.wrap_socket = sslwrap(ssl.wrap_socket)
-    t=Tester( args )
+    p = Plotter()
+    t=Tester( args,p )
     t.start()
 
-    while (stayingAlive):
-        sleep(1)
-
+    p.runMe()
+    stayingAlive=False
+    t.join()
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)
     main(handleCmdLineArgs())
