@@ -19,20 +19,22 @@ class Plotter ():
         
         
         for id, name in lines:
-            p = ax.plot( self.xAxist, self.xAxist,label=name )
+            p = ax.plot( self.xAxist, self.xAxist, label= name)
             l=list([0 for x in range(self.xCount)])
             self.values[id]=0.0
             self.data[id]=[l,p]
               
-
+        ax.legend()
         ax.axis([0.0,self.xCount, self.maxY/10.0,self.maxY])
+        ax.set_ylabel('ms')
         self.ax = ax
 
     def setValue(self,key,value):
         rc = True
+        msVal = int(value)/1000
         self.lock.acquire()
         if self.values.has_key(key):
-            self.values[key]=value
+            self.values[key]=msVal
         else:
             rc = False  
         self.lock.release()
