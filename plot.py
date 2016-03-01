@@ -1,65 +1,66 @@
 """
 
 """
-
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-
+from threading import Lock
 
 class Plotter ():
     ''''''
-    def __init__(self):
-        xCount=500
+    def __init__(self,lines):
+        self.xCount=500
         self.fig, ax = plt.subplots()
-        self.value = float(0.0);
-        self.value2 = float(0.0);
+        self.data ={}
+        self.values ={}
+        self.xAxist = np.arange(0, self.xCount)
+        self.lock = Lock()
+        
+        
+        for id, name in lines:
+            p = ax.plot( self.xAxist, self.xAxist,label=name )
+            l=list([0 for x in range(self.xCount)])
+            self.values[id]=0.0
+            self.data[id]=[l,p]
+              
 
-        self.myList=[0 for x in range(xCount)]
-        self.myList2=[0 for x in range(xCount)]
-
-        self.xAxist = np.arange(0, xCount)
-
-        self.line, = ax.plot( self.xAxist, self.xAxist)
-        self.line2, = ax.plot( self.xAxist, self.xAxist)
-
-        ax.axis([0.0,xCount, 500.0,500000.0])
+        ax.axis([0.0,self.xCount, 500.0,300000.0])
         self.ax = ax
 
-    def setValue(self,id,value):
-        '''Setting one value should be thread safe'''
-        if id == 1:
-            self.value = float(value)
+    def setValue(self,key,value):
+        rc = True
+        self.lock.acquire()
+        if self.values.has_key(key):
+            self.values[key]=value
         else:
-            self.value2 = float(value)
-        #print(self.value )
+            rc = False  
+        self.lock.release()
+        return rc
+        
+    def getValue(self, key):
+        self.lock.acquire()
+        val = self.values[key]
+        self.lock.release()
+        return val
 
     def animate(self,i):
-        self.myList.append(self.value)
-        self.myList2.append(self.value2)
+        line=None
+        for key in self.data:
+            l,line = self.data[key]
+            val = self.getValue(key)
+            l.append(val)
+            myarray = np.asarray(l[-self.xCount:])
+            line[0].set_ydata(myarray)
 
-        if len(self.myList)> 20:
-            self.myList.pop(0)
-            self.myList2.pop(0)
-
-        myarray = np.asarray(self.myList)
-        myarray2 = np.asarray(self.myList2) 
-
-        self.line.set_ydata(myarray)  # update the data
-        self.line2.set_ydata(myarray2)  # update the data
-        return self.line,
-
+        return line[0],
 
     # Init only required for blitting to give a clean slate.
     def init(self):
-
-        self.line.set_ydata(np.ma.array( self.xAxist, mask=True))
-        self.line2.set_ydata(np.ma.array( self.xAxist, mask=True))
-        return self.line,
-
+        pass
+    
     def runMe(self):
         ani = animation.FuncAnimation(self.fig, self.animate, np.arange(1, 1000), 
-                                      init_func=self.init,interval=50)
+                                      init_func=self.init,interval=100)
         plt.show()
 
 if __name__ == '__main__':
