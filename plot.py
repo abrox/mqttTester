@@ -5,10 +5,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from threading import Lock
+from textwrap import wrap
 
 class Plotter ():
     ''''''
-    def __init__(self,lines):
+    def __init__(self,lines,title='fig1'):
         self.xCount=500
         self.fig, ax = plt.subplots()
         self.data ={}
@@ -23,8 +24,15 @@ class Plotter ():
             l=list([0 for x in range(self.xCount)])
             self.values[id]=0.0
             self.data[id]=[l,p]
-              
+
+        # Shrink current axis by 10%
+        box = ax.get_position()
+        ax.set_position([box.x0, box.y0, box.width , box.height* 0.90])
+
         ax.legend()
+        t= "\n".join(wrap(title,60))
+        ax.set_title(t)
+
         ax.axis([0.0,self.xCount, self.maxY/10.0,self.maxY])
         ax.set_ylabel('ms')
         self.ax = ax

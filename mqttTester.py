@@ -312,7 +312,7 @@ def main( args ):
     global stayingAlive
     ssl.wrap_socket = sslwrap(ssl.wrap_socket)
     lines=[(1,"Connections"),(2,"roundtrip")]
-    p = Plotter(lines)
+    p = Plotter(lines,'%s'%args)
     t=Tester( args,p )
     t.start()
 
