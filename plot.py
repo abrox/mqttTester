@@ -13,6 +13,7 @@ class Plotter ():
         self.fig, ax = plt.subplots()
         self.data ={}
         self.values ={}
+        self.maxY = 10.0
         self.xAxist = np.arange(0, self.xCount)
         self.lock = Lock()
         
@@ -24,7 +25,7 @@ class Plotter ():
             self.data[id]=[l,p]
               
 
-        ax.axis([0.0,self.xCount, 500.0,300000.0])
+        ax.axis([0.0,self.xCount, self.maxY/10.0,self.maxY])
         self.ax = ax
 
     def setValue(self,key,value):
@@ -45,13 +46,21 @@ class Plotter ():
 
     def animate(self,i):
         line=None
+        maxY = self.maxY
         for key in self.data:
             l,line = self.data[key]
             val = self.getValue(key)
             l.append(val)
-            myarray = np.asarray(l[-self.xCount:])
+            myarray = np.asarray(l[-self.xCount:]).astype(np.float)
+            yVal = np.nanmax(myarray)
+            if yVal > maxY:
+                maxY = yVal
             line[0].set_ydata(myarray)
-
+        #Set correct max value + 10% space
+        if maxY > self.maxY:
+            self.maxY = maxY+0.1*maxY
+            self.ax.set_ylim(0,self.maxY)
+            
         return line[0],
 
     # Init only required for blitting to give a clean slate.
