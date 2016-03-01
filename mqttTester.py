@@ -36,6 +36,7 @@ from datetime import datetime
 from timeit import default_timer as timer
 from random import uniform
 from time import sleep
+import uuid
 from plot import Plotter
 
 stayingAlive=True
@@ -228,12 +229,12 @@ class Tester(threading.Thread):
         for t in self.threads:
             t.start() 
 
-        s='time;'
-        for num in range(0,self.cfg.subs,1):
-            s+='Subs'+ str(num)+';'
-
-        outFile = open(self.cfg.file,'w')
-        outFile.write(s+'\n')    
+        if self.cfg.file is not None:
+            s='time;'
+            for num in range(0,self.cfg.subs,1):
+                s+='Subs'+ str(num)+';'
+            outFile = open(self.cfg.file,'w')
+            outFile.write(s+'\n')    
 
 
         while(stayingAlive):
@@ -256,7 +257,8 @@ class Tester(threading.Thread):
                         for num in range(0,self.cfg.subs,1):
                             s+=values[str(num)] + ';'
                         print(s)
-                        outFile.write(s+'\n')
+                        if self.cfg.file is not None:
+                            outFile.write(s+'\n')
                         del   results[timeStamp]
                     self.plotter.setValue(2,delta)
                 elif mType == 'c':
@@ -272,8 +274,10 @@ class Tester(threading.Thread):
 
             except queue.Empty:
                 pass
-
-        outFile.close()
+        
+        if self.cfg.file is not None:
+            outFile.close()
+             
         for t in self.threads:
             t.alive=False
 
@@ -285,11 +289,11 @@ class Tester(threading.Thread):
 ############################################################################################
 def handleCmdLineArgs():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--file', '-f',help='outfile',default='mqttTester.dat')
+    parser.add_argument('--file', '-f',help='outfile')
     parser.add_argument('--host', '-H',help='broker address',default='localhost')
     parser.add_argument('--qos',  '-q',help='Quality of service',default=0 ,type=int, choices=[0, 1, 2])
     parser.add_argument('--subs', '-s',help='Number of subscribers',default=1 ,type=int)
-    parser.add_argument('--topic','-t',help='topic used',default='myTest')
+    parser.add_argument('--topic','-t',help='topic used',default='jps/%s'%uuid.uuid4())#create unique topic name with some prefix
     parser.add_argument('--pubt', '-p',help='timeout for publishing s',default=3 ,type=int)
     parser.add_argument('--conn', '-c',help='connectors',default=0 ,type=int)
     parser.add_argument('--port', '-P',help='mqtt port',default=1883 ,type=int)
